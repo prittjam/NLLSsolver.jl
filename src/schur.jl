@@ -118,9 +118,16 @@ function MultiVariateLSschur(problem::NLLSProblem, unfixed::AbstractVector{Bool}
     cumsum!(cpptr, cpptr)
     cplen = off - 1
 
+    # The retained blocks' size, if they all share one static size (the reduction is then fully unrolled)
+    R = 0
+    retainedsizes = [nvars(variables[i]) for i in retainedind]
+    if all(sz -> dynamic(is_static(sz)), retainedsizes) && all(==(retainedsizes[1]), retainedsizes) && dynamic(retainedsizes[1]) <= MAX_STATIC_RETAINED
+        R = Int(dynamic(retainedsizes[1]))
+    end
+
     structure = SchurStructure{length(Ps)}(nc, ncblocks, blocksizes, boffsets, ppoffsets, cpptr, cpblock, cpoffsets, groups)
     A = SchurBlockMatrix{Float64, length(Ps)}(zeros(nc, nc), zeros(pplen), zeros(cplen), structure)
-    x = MultiVariateLSschur_x{Ps, length(Ps)}(zeros(n), blockindices, convert(Vector{UInt}, boffsets), structure, zeros(nc, nc), zeros(nc, nc), zeros(nc), zeros(pplen), zeros(cplen))
+    x = MultiVariateLSschur_x{Ps, length(Ps), R}(zeros(n), blockindices, convert(Vector{UInt}, boffsets), structure, zeros(nc, nc), zeros(nc, nc), zeros(nc), zeros(pplen), zeros(cplen))
     return LinearSystem(x, MultiVariateLSschur_ls{length(Ps)}(A, zeros(n)))
 end
 
@@ -310,6 +317,57 @@ function reducegroup!(::Val{P}, xs, A, b, x, blocks) where P
     return nothing
 end
 
+# The same, for retained blocks all of the static size R: each coupling block is an SMatrix, and the
+# reduction S -= (H_cp inv(H_pp)) H_pc of each pair of them is a fully unrolled product
+function reducegroup!(::Val{P}, ::Val{R}, xs, A, b, x, blocks) where {P, R}
+    s = xs.structure
+    S = xs.S
+    rc = xs.rc
+    w = xs.w
+    cp = A.cp
+    @inbounds for k in blocks
+        blk = s.ncblocks + k
+        o = s.ppoffsets[k] - 1
+        H = SMatrix{P, P, Float64}(ntuple(i -> A.pp[o + i], Val(P * P)))
+        Hinv = invsymblock(H)
+        for i in 1:P*P
+            xs.ppinv[o + i] = Hinv[i]
+        end
+        xo = s.boffsets[blk] - 1
+        z = Hinv * loadsvector(b, xo, Val(P))
+        storesvector!(x, xo, z)
+        erange = s.cpptr[k]:s.cpptr[k+1]-1
+        for e in erange
+            ao = s.boffsets[s.cpblock[e]] - 1
+            co = s.cpoffsets[e] - 1
+            # The coupling block H_cp, stored row major, is the column-major H_pc (P x R)
+            Hpc = SMatrix{P, R, Float64}(ntuple(i -> cp[co + i], Val(P * R)))
+            W = Hinv * Hpc
+            storesvector!(w, co, vec(W))
+            r = Hpc' * z
+            for i in 1:R
+                rc[ao + i] -= r[i]
+            end
+        end
+        for e in erange
+            ao = s.boffsets[s.cpblock[e]] - 1
+            wo = s.cpoffsets[e] - 1
+            W = SMatrix{P, R, Float64}(ntuple(i -> w[wo + i], Val(P * R)))
+            for e2 in erange
+                ao2 = s.boffsets[s.cpblock[e2]] - 1
+                co2 = s.cpoffsets[e2] - 1
+                Hpc2 = SMatrix{P, R, Float64}(ntuple(i -> cp[co2 + i], Val(P * R)))
+                D = W' * Hpc2
+                for j in 1:R, i in 1:R
+                    S[ao + i, ao2 + j] -= D[i, j]
+                end
+            end
+        end
+    end
+    return nothing
+end
+reducegroup!(::Val{P}, ::Val{0}, xs, A, b, x, blocks) where P = reducegroup!(Val(P), xs, A, b, x, blocks)
+
 # Back-substitute one group: x_p = inv(H_pp) g_p - (H_cp inv(H_pp))' x_c
 function backsubstitutegroup!(::Val{P}, xs, x, blocks) where P
     s = xs.structure
@@ -330,11 +388,11 @@ function backsubstitutegroup!(::Val{P}, xs, x, blocks) where P
     return nothing
 end
 
-@generated function reducegroups!(xs::MultiVariateLSschur_x{Ps, G}, A, b, x) where {Ps, G}
-    return Expr(:block, [:(reducegroup!(Val($(Ps[g])), xs, A, b, x, xs.structure.groups[$g])) for g in 1:G]..., :(nothing))
+@generated function reducegroups!(xs::MultiVariateLSschur_x{Ps, G, R}, A, b, x) where {Ps, G, R}
+    return Expr(:block, [:(reducegroup!(Val($(Ps[g])), Val($R), xs, A, b, x, xs.structure.groups[$g])) for g in 1:G]..., :(nothing))
 end
 
-@generated function backsubstitutegroups!(xs::MultiVariateLSschur_x{Ps, G}, x) where {Ps, G}
+@generated function backsubstitutegroups!(xs::MultiVariateLSschur_x{Ps, G, R}, x) where {Ps, G, R}
     return Expr(:block, [:(backsubstitutegroup!(Val($(Ps[g])), xs, x, xs.structure.groups[$g])) for g in 1:G]..., :(nothing))
 end
 

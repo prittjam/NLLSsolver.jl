@@ -123,7 +123,7 @@ struct MultiVariateLSdense_ls
 end
 
 # Multi-variate linear system with the eliminable variables removed by the Schur complement (see schur.jl)
-struct MultiVariateLSschur_x{Ps, G}
+struct MultiVariateLSschur_x{Ps, G, R} # R: the size of every retained block when static and common to all, else 0
     x::Vector{Float64}
     blockindices::Vector{UInt} # One for each variable
     boffsets::Vector{UInt} # One per block in b: the retained blocks first, then the eliminable ones
@@ -142,8 +142,8 @@ end
 
 const MultiVariateLSsparse = Union{LinearSystem{MultiVariateLSsparse_x, MultiVariateLSsparse_ls}, LinearSystemShared{MultiVariateLSsparse_x, MultiVariateLSsparse_ls, M} where M}
 const MultiVariateLSdense = Union{LinearSystem{MultiVariateLSdense_x, MultiVariateLSdense_ls}, LinearSystemShared{MultiVariateLSdense_x, MultiVariateLSdense_ls, M} where M}
-const MultiVariateLSschur = Union{LinearSystem{MultiVariateLSschur_x{Ps, G}, MultiVariateLSschur_ls{G}} where {Ps, G}, LinearSystemShared{MultiVariateLSschur_x{Ps, G}, MultiVariateLSschur_ls{G}, M} where {Ps, G, M}}
-const MultiVariateLSsingle = Union{LinearSystem{MultiVariateLSsparse_x, MultiVariateLSsparse_ls}, LinearSystem{MultiVariateLSdense_x, MultiVariateLSdense_ls}, LinearSystem{MultiVariateLSschur_x{Ps, G}, MultiVariateLSschur_ls{G}} where {Ps, G}}
+const MultiVariateLSschur = Union{LinearSystem{MultiVariateLSschur_x{Ps, G, R}, MultiVariateLSschur_ls{G}} where {Ps, G, R}, LinearSystemShared{MultiVariateLSschur_x{Ps, G, R}, MultiVariateLSschur_ls{G}, M} where {Ps, G, R, M}}
+const MultiVariateLSsingle = Union{LinearSystem{MultiVariateLSsparse_x, MultiVariateLSsparse_ls}, LinearSystem{MultiVariateLSdense_x, MultiVariateLSdense_ls}, LinearSystem{MultiVariateLSschur_x{Ps, G, R}, MultiVariateLSschur_ls{G}} where {Ps, G, R}}
 const MultiVariateLS = Union{MultiVariateLSsparse, MultiVariateLSdense, MultiVariateLSschur}
 
 function MultiVariateLSsparse(A::BlockSparseMatrix, blockindices, storehessian=true)

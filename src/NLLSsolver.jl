@@ -28,6 +28,7 @@ abstract type AbstractAdaptiveRobustifier <: AbstractRobustifier end # Robustifi
 const MAX_ARGS = 10 # Maximum number of variables a residual can depend on
 const MAX_BLOCK_SZ = 32 # Maximum DoF of a variable and also maximum length of a residual allowed for various operations, such as marginalization
 const MAX_STATIC_VAR = 64 # Maximum static variable size for static sized autodiff to be used
+const MAX_STATIC_RETAINED = 16 # Maximum size of the retained variables for the Schur complement to be formed with static sized blocks
 
 # API method docstrings
 include("docstrings.jl")

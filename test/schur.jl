@@ -143,6 +143,25 @@ end
             @test NLLSsolver.schurcomplement!(ls) ≈ Sref rtol=1e-10
         end
 
+        # The retained blocks (the cameras) are all of static size 6, so the reduction is the unrolled one; it
+        # agrees with the dynamic one to rounding
+        Ps, G, R = typeof(ls.x).parameters
+        @test R == 6
+        xs = ls.x
+        Sstatic = copy(NLLSsolver.schurcomplement!(ls))
+        rcstatic = copy(xs.rc)
+        wstatic = copy(xs.w)
+        xstatic = copy(NLLSsolver.getx(ls))
+        copyto!(xs.S, A.cc)
+        copyto!(xs.rc, 1, b, 1, xs.structure.nc)
+        for g in 1:G
+            NLLSsolver.reducegroup!(Val(Ps[g]), xs, A, b, NLLSsolver.getx(ls), xs.structure.groups[g])
+        end
+        @test xs.S ≈ Sstatic rtol=1e-13
+        @test xs.rc ≈ rcstatic rtol=1e-13
+        @test xs.w ≈ wstatic rtol=1e-13
+        @test NLLSsolver.getx(ls) ≈ xstatic rtol=1e-13
+
         # The solve allocates nothing
         NLLSsolver.solve!(ls)
         @test (@allocated NLLSsolver.solve!(ls)) == 0
@@ -151,6 +170,25 @@ end
         shared = NLLSsolver.sharedlinearsystem(NLLSsolver.MultiVariateLSschur(problem, unfixed), static(2))
         @test NLLSsolver.costgradhess!(shared, problem.variables, problem.costs) ≈ cost
         @test Matrix(NLLSsolver.getA(shared)) ≈ Hs[invperm(perm), invperm(perm)]
+    end
+
+    @testset "Retained blocks of different sizes: the dynamic reduction" begin
+        problem = schurtestproblem(SchurTestPoint, 4, 20, 3; camerapairs=true)
+        X = SVector(0.1, 0.2, 0.3)
+        ind = addvariable!(problem, PlainTestPoint(X + SVector(0.01, -0.02, 0.0)))
+        for c in 1:4
+            addcost!(problem, SchurTestProjection{PlainTestPoint{3, Float64}}(schurtestproject(problem.variables[c], X), SVector(c, ind)))
+        end
+        unfixed = trues(length(problem.variables))
+        unfixed[1:2] .= false
+        ls = NLLSsolver.MultiVariateLSschur(problem, unfixed)
+        @test typeof(ls.x).parameters[3] == 0
+        NLLSsolver.costgradhess!(ls, problem.variables, problem.costs)
+        NLLSsolver.dampenhessian!(NLLSsolver.getA(ls), NLLSsolver.LevenbergData(1.0), 1.0)
+        M = Matrix(NLLSsolver.getA(ls))
+        b = copy(NLLSsolver.getb(ls))
+        xdense = cholesky(Symmetric(M)) \ b
+        @test norm(NLLSsolver.solve!(ls) - xdense) <= 1e-12 * norm(xdense)
     end
 
     @testset "Every iterator converges to the dense/sparse optimum: $iterator" for iterator in (:newton, :levenbergmarquardt, :levenbergmarquardt_dtd, :dogleg)
