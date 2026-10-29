@@ -192,13 +192,14 @@ end
     end
 
     @testset "Every iterator converges to the dense/sparse optimum: $iterator" for iterator in (:newton, :levenbergmarquardt, :levenbergmarquardt_dtd, :dogleg)
-        for (n3, n2) in ((6, 0), (60, 9))
+        # callbackchangesstate selects the Levenberg-Marquardt iterators without (true) and with (false) trial-point reuse
+        for (n3, n2) in ((6, 0), (60, 9)), changesstate in (false, true)
             # Four cameras, the first two fixed (which fixes the affine gauge)
             schur = schurtestproblem(SchurTestPoint, 4, n3, n2)
             plain = schurtestproblem(PlainTestPoint, 4, n3, n2)
             unfixed = trues(length(schur.variables))
             unfixed[1:2] .= false
-            options = NLLSOptions(iterator=iterator, numthreads=static(1))
+            options = NLLSOptions(iterator=iterator, numthreads=static(1), callbackchangesstate=changesstate)
             rs = optimize!(schur, options, unfixed)
             rp = optimize!(plain, options, unfixed)
             @test rs.startcost ≈ rp.startcost

@@ -228,13 +228,13 @@ function maxabsdiag(A::SchurBlockMatrix)
     return m
 end
 
-function updatescaling!(lmd::LevenbergData, A::SchurBlockMatrix)
+function updatescaling!(lmd::AnyLevenbergData, A::SchurBlockMatrix)
     if lmd.lambda == 0
         lmd.lambda = maxabsdiag(A) * 1e-6
     end
 end
 
-function updatescaling!(lmd::MarquardtData, A::SchurBlockMatrix)
+function updatescaling!(lmd::AnyMarquardtData, A::SchurBlockMatrix)
     if lmd.lambda == 0
         lmd.lambda = 1e-6
     end
@@ -244,8 +244,8 @@ function updatescaling!(lmd::MarquardtData, A::SchurBlockMatrix)
     scaling .= max.(scaling, m * 1e-8)
 end
 
-dampenhessian!(A::SchurBlockMatrix, ::LevenbergData, dlambda) = uniformscaling!(A, dlambda)
-function dampenhessian!(A::SchurBlockMatrix, lmd::MarquardtData, dlambda)
+dampenhessian!(A::SchurBlockMatrix, ::AnyLevenbergData, dlambda) = uniformscaling!(A, dlambda)
+function dampenhessian!(A::SchurBlockMatrix, lmd::AnyMarquardtData, dlambda)
     scaling = lmd.scaling
     mapdiag!((i, v) -> v + dlambda * @inbounds(scaling[i]), A)
 end
